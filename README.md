@@ -16,7 +16,7 @@ Throughout this project, we explore infrastructure provisioning, server hardenin
 
 **The goal is to build a production-ready application environment that is secure, automated, maintainable, and reliable.**
 
-The roadmap
+## The roadmap
 This book is structured systematically to guide you from absolute zero to an advanced automation posture.
 
 - Module 1: The foundation — Cloud infrastructure provisioning, setting up locked rootless user models, and establishing strict SSH cryptographic authentication.
@@ -25,3 +25,13 @@ This book is structured systematically to guide you from absolute zero to an adv
 - Module 4: Global delivery & app security — DNS configuration, edge proxy routing, end-to-end SSL/TLS encryption, and robust Nginx web-layer hardening against soft 404 vulnerabilities and automated scanners.
 - Module 5: The automation pipeline — Shifting security left by constructing a multi-stage GitHub Actions CI/CD framework featuring dependency auditing (SCA), source code scanning (SAST), integration testing, and atomic zero-downtime deployments.
 - Module 6: Optimization & maintenance — Native log-based traffic analytics with GoAccess, real-time terminal resource observation, dynamic frontend vulnerability scanning (DAST), and automated rolling maintenance.
+
+# Module 1: The foundation
+
+## Cloud setup & access
+
+### Introduction
+- Before you deploy any code, you need a secure environment. We use AWS EC2 here, but these concepts apply to DigitalOcean, Linode, or even a Raspberry Pi.
+- By the end of this section, you will have a server running Ubuntu 24.04 LTS, accessed securely via SSH keys, with password authentication completely disabled.
+
+### Create the project
