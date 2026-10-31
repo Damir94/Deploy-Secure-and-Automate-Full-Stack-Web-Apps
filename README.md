@@ -272,3 +272,170 @@ sudo ls /root
 - If the command works, you will see the contents of the root directory. If you get an error saying your user is "not in the sudoers file", STOP. Do not disable root login until you fix the user permissions.
 - From now on, you will stop using root and use this account instead.
 
+## Disable root SSH access
+- Now that your new user is set up, you should disable direct login for the root account. This reduces your attack surface.
+```bash
+ssh vi /etc/ssh/sshd_config
+```
+- Find the line PermitRootLogin yes and change it to no. Also, find the line PasswordAuthentication yes and change it to no. This explicitly forces the server to use SSH keys and reject all password login attempts.
+- Restart the SSH service to apply the changes.
+```bash
+sudo systemctl restart ssh
+```
+- Now, exit the server.
+```bash
+exit
+```
+- Try to log in as root.
+```bash
+ssh -i ~/.ssh/<private_key_name> root@<your_droplet_ip>
+```
+- You should see a message indicating that authentication was rejected. Depending on your local SSH configuration, you will see one of these two errors:
+
+## Simplify SSH access
+- Typing the full SSH command with the key path and IP address every time is tedious. You can configure your local SSH client to remember these details for you.
+- On your local computer (not the server), open or create the SSH config file:
+```bash
+vi ~/.ssh/config
+```
+- Add the following configuration block at the bottom of the file:
+```bash
+Host my-website
+    HostName <your_droplet_ip>
+    User <your_username>
+    IdentityFile ~/.ssh/<private_key_name>
+    IdentitiesOnly yes
+```
+- Here is what these lines do:
+ - Host: This is the shortcut name you want to use.
+  - HostName: The actual IP address of your server.
+  - User: The username you created on the server.
+  - IdentityFile: The path to the specific private key for this server.
+  - IdentitiesOnly: This tells SSH to only use the specific key file listed here. This prevents the "Too many authentication failures" error if you have many keys on your computer.
+- Save the file and exit. Now, instead of typing this long command:
+```bash
+ssh -i ~/.ssh/<private_key_name> <your_username>@<your_droplet_ip>
+```
+- You can simply type:
+```bash
+ssh my-website
+```
+- Your computer will automatically look up the IP, user, and key, and log you straight in.
+
+## What is next?
+- You have successfully configured a clean Ubuntu server and secured it with SSH keys. However, your server is still exposed to the open internet.
+- The firewall strategy, we will lock down the network. You will learn how to configure UFW to block unwanted traffic, set up Fail2Ban to stop brute-force attacks, and use the Recovery Console if you ever get locked out.
+
+## The firewall strategy
+- Right now, your server is like a house with the front door locked (SSH keys) but every window wide open. By default, a fresh Linux server accepts connections on any port. This is not ideal.
+- In this section, you will configure a firewall to block all incoming traffic by default, allowing only the connections you explicitly trust, using UFW (Uncomplicated Firewall). You will also install Fail2Ban to automatically ban bots that try to guess your SSH keys.
+
+## Configure the firewall
+- Ubuntu comes with a tool called UFW (Uncomplicated Firewall). It is designed to be easy to use while providing robust security.
+- Check the current status of your firewall.
+```bash
+sudo ufw status
+```
+- It should say Status: inactive. Before you activate it, you must explicitly allow SSH connections.
+- If you enable the firewall without allowing SSH first, you will lock yourself out of the server immediately.
+```bash
+sudo ufw allow OpenSSH
+```
+- Now that SSH is allowed, you can safely enable the firewall.
+```bash
+sudo ufw enable
+```
+- The system will warn you that this command might disrupt existing SSH connections. Type y and hit Enter.
+- Verify the status again to see the active rules.
+```bash
+sudo ufw status verbose
+```
+- The output gives you a detailed list. Pay close attention to the Default policy and the ALLOW IN rules.
+
+- Here is how to interpret this output:
+  - Default: deny (incoming): This is the most important rule. It means every single port on your server is blocked unless you explicitly allow it.
+  - ALLOW IN: These are your exceptions. Right now, you are only allowing traffic for SSH (port 22).
+- Later in the guide, when you install the web server (Nginx), you will come back here to open ports 80 (HTTP) and 443 (HTTPS). For now, keeping them closed is safer.
+
+## Protect SSH with Fail2Ban
+- If you check your authentication logs (/var/log/auth.log), you will likely see a stream of failed login attempts. These are automated bots scanning the internet, trying to guess passwords for common usernames like admin, root, or test.
+- Here is a real example from my own server logs:
+- Even though they cannot get in (because you disabled password authentication), they waste your server's CPU and fill up your disk space with logs.
+- To stop this, install Fail2Ban. This tool monitors your logs in real-time. If an IP address fails to log in too many times, Fail2Ban instantly updates the firewall to block that IP completely.
+
+<img width="1684" height="775" alt="1_2_1_fail2ban_firewall_rules_illustration" src="https://github.com/user-attachments/assets/31614c5c-70eb-40b7-b885-7e80332384f5" />
+
+- How Fail2Ban turns log entries into firewall rules.
+- Fail2Ban is available in Ubuntu's default repositories. Install it with this command:
+```bash
+sudo apt install fail2ban -y
+```
+- By default, Fail2Ban only bans attackers for 10 minutes. This is often too short; persistent bots will just come back later. To increase this to 1 day, create a local configuration file.
+- Never edit the .conf file directly, as system updates will overwrite it. Always use a .local file for your customizations.
+- Create the file using vi
+```bash
+sudo vi /etc/fail2ban/jail.local
+```
+- Paste the following configuration:
+```bash
+[sshd]
+enabled = true
+bantime = 1d
+maxretry = 5
+findtime = 10m
+```
+- Here is what these settings do:
+  - enabled: Turns on protection for SSH.
+  - bantime: Bans the IP for 1 day.
+  - maxretry: Allows a user to fail 5 times before being banned.
+  - findtime: The window of time (10 minutes) in which those 5 failures must occur to trigger a ban.
+- Save and exit. Restart the Fail2Ban service for the new configuration to take effect:
+```bash
+sudo systemctl restart fail2ban
+```
+- Once installed, enable the service to start automatically when the server reboots.
+```bash
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+```
+- You can verify your new ban time (86400 seconds = 24 hours) with this command:
+```bash
+sudo fail2ban-client get sshd bantime
+```
+- To see if the tool is working, check the status of the SSH jail.
+```bash
+sudo fail2ban-client status sshd
+```
+- The output will look like this:
+
+- If you see IPs in the "Banned IP list", it means the tool is working. That specific IP from the logs is now blocked and can no longer connect to the server.
+
+## Recovery console
+- What happens if you make a mistake? For example, if you accidentally run ufw enable before allowing OpenSSH, or if you configure SSH keys incorrectly and lose access to your private key.
+- If you get locked out, DigitalOcean provides a Recovery Console. This feature gives you direct access to the machine through your browser, bypassing SSH entirely.
+  - Go to the DigitalOcean dashboard and click on your project.
+  - Click the name of your droplet to open its details.
+  - Click on the Access button in the left sidebar.
+  - Click Launch Recovery Console.
+ 
+<img width="1320" height="534" alt="1_2_2_locate_console_digital_ocean_inkscape" src="https://github.com/user-attachments/assets/2363119a-1bb3-4fac-b282-fbf28159e1ef" />
+
+- Access the Recovery Console from the DigitalOcean dashboard.
+- Once the console opens, you will need to log in.
+- The Recovery Console requires a password to log in. If you created your user without a password, or if you forgot it, you will need to reset the root password first using the "Reset Root Password" button on the same Access page.
+- The keyboard mapping in the Recovery Console can be tricky. It is a good idea to type your password in the username field first just to see if the characters match what you are pressing, then delete it and log in properly.
+
+<img width="1320" height="734" alt="1_2_3_launch_recovery_console_inkscape" src="https://github.com/user-attachments/assets/b3b6142d-d4b1-4516-8c5f-a6411a440642" />
+- The Recovery Console login screen.
+
+- Once you are logged in, you can run the missing command to fix the issue. For example, if you forgot to allow SSH:
+```bash
+sudo ufw allow OpenSSH
+```
+- After fixing the issue, close the browser window and try to SSH from your terminal again.
+```bash
+ssh my-website
+```
+### What is next?
+- Your foundation is solid. You have a secure server that blocks unauthorized traffic and automatically bans attackers.
+- In the next module, Module 2: The Application, we will shift focus from security to software. You will learn how to prepare the environment by installing Python 3.13 and Node.js, setting up Swap memory to handle builds on a low-RAM server, and configuring Gunicorn and Supervisor to keep your application running reliably in the background.
